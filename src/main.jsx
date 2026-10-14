@@ -1,0 +1,133 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import { decks } from './decks';
+import './styles.css';
+
+function loadProgress(config) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(config.storageKey));
+    if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return {};
+    return Object.fromEntries(config.items.filter(s => ['known', 'review'].includes(saved[s.id])).map(s => [s.id, saved[s.id]]));
+  } catch { return {}; }
+}
+function shuffled(values) {
+  const result = [...values];
+  for (let i = result.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [result[i], result[j]] = [result[j], result[i]]; }
+  return result;
+}
+function Icon({ name, ...props }) {
+  const paths = {
+    cards: <><rect x="5" y="6" width="14" height="15" rx="2"/><path d="M9 3h10a3 3 0 0 1 3 3v11"/></>,
+    library: <><path d="M4 4h6v16H4zM14 4h6v16h-6zM7 8h0M17 8h0"/></>,
+    arrow: <path d="m9 5 7 7-7 7"/>,
+    check: <path d="m5 12 4 4L19 6"/>,
+    shuffle: <><path d="M3 5h3c5 0 6 14 12 14h3m-4-4 4 4-4 4M3 19h3c2 0 3-2 4-4m4-6c1-2 2-4 4-4h3m-4-4 4 4-4 4"/></>,
+    repeat: <><path d="M20 7H7a4 4 0 0 0-4 4v1m13-9 4 4-4 4M4 17h13a4 4 0 0 0 4-4v-1m-13 9-4-4 4-4"/></>,
+    search: <><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></>,
+  };
+  return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>{paths[name]}</svg>;
+}
+function App() {
+  const [country, setCountry] = useState('latvia');
+  return <StudyApp key={country} config={decks[country]} onCountryChange={setCountry}/>;
+}
+function StudyApp({ config, onCountryChange }) {
+  const { items: signs, categories, source: SOURCE, storageKey: STORAGE } = config;
+  const [view, setView] = useState('practice');
+  const [category, setCategory] = useState(0);
+  const [scope, setScope] = useState('all');
+  const [query, setQuery] = useState('');
+  const [order, setOrder] = useState(() => signs.map(s => s.id));
+  const [index, setIndex] = useState(0);
+  const [revealed, setRevealed] = useState(false);
+  const [progress, setProgress] = useState(() => loadProgress(config));
+  const [storageWarning, setStorageWarning] = useState(false);
+  const [resetAsked, setResetAsked] = useState(false);
+  const [announcement, setAnnouncement] = useState('');
+  const [imageError, setImageError] = useState(false);
+  const deck = useMemo(() => {
+    const lookup = new Map(signs.map(s => [s.id, s]));
+    const search = query.trim().toLowerCase();
+    return order.map(id => lookup.get(id)).filter(s => (!category || s.category === category) &&
+      (scope === 'all' || (scope === 'review' ? progress[s.id] === 'review' : progress[s.id] !== 'known')) &&
+      (!search || `${s.id} ${s.name} ${s.nativeName} ${s.prompt || ''}`.toLowerCase().includes(search)));
+  }, [category, scope, progress, query, order, signs]);
+  const currentIndex = deck.length ? Math.min(index, deck.length - 1) : 0;
+  const card = deck[currentIndex];
+  const known = signs.filter(s => progress[s.id] === 'known').length;
+  const review = signs.filter(s => progress[s.id] === 'review').length;
+  const percent = Math.round(known / signs.length * 100);
+  function updateProgress(nextProgress) {
+    setProgress(nextProgress);
+    try { localStorage.setItem(STORAGE, JSON.stringify(nextProgress)); }
+    catch { setStorageWarning(true); }
+  }
+
+  function resetCard() { setIndex(0); setRevealed(false); setImageError(false); setAnnouncement(''); }
+  function move(delta) {
+    if (!deck.length) return;
+    setIndex((currentIndex + delta + deck.length) % deck.length);
+    setRevealed(false); setImageError(false); setAnnouncement('');
+  }
+  function rate(status) {
+    if (!card || !revealed) return;
+    updateProgress({ ...progress, [card.id]: status });
+    const leavesDeck = scope === 'review' && status !== 'review' || scope === 'unlearned' && status === 'known';
+    setIndex(leavesDeck ? Math.min(currentIndex, Math.max(0, deck.length - 2)) : (currentIndex + 1) % deck.length);
+    setRevealed(false); setImageError(false);
+    setAnnouncement(`Card ${card.id} marked ${status === 'known' ? 'known' : 'for another practice'}.`);
+  }
+  useEffect(() => {
+    function onKey(event) {
+      if (view !== 'practice' || event.ctrlKey || event.metaKey || event.altKey || event.repeat || ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON', 'A'].includes(event.target.tagName)) return;
+      if (event.code === 'Space' && card) { event.preventDefault(); setRevealed(value => !value); }
+      if (event.key === 'ArrowRight') { event.preventDefault(); move(1); }
+      if (event.key === 'ArrowLeft') { event.preventDefault(); move(-1); }
+      if (event.key === '1') rate('review');
+      if (event.key === '2') rate('known');
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
+  function changeCategory(value) { setCategory(value); resetCard(); }
+  function shuffleDeck() { setOrder(previous => shuffled(previous)); resetCard(); setAnnouncement('Cards shuffled.'); }
+  return <div className="app-shell">
+    <aside className="sidebar">
+      <button className="brand" onClick={() => setView('practice')} aria-label="Ceļš, open flashcards"><span className="brand-mark">↗</span><span>Ceļš<small>{config.subtitle}</small></span></button>
+      <label className="country-switch"><span>Study collection</span><select aria-label="Study country" value={config.id} onChange={e => onCountryChange(e.target.value)}><option value="latvia">Latvia · 320 signs</option><option value="germany">Germany · differences</option></select></label>
+      <nav aria-label="Main navigation">
+        <button className={view === 'practice' ? 'nav-button selected' : 'nav-button'} onClick={() => setView('practice')}><Icon name="cards"/>Flashcards</button>
+        <button className={view === 'library' ? 'nav-button selected' : 'nav-button'} onClick={() => setView('library')}><Icon name="library"/>{config.libraryLabel}<span>{signs.length}</span></button>
+      </nav>
+      <div className="category-heading">Study by category</div>
+      <div className="category-list">{categories.map((label, value) => <button key={label} className={category === value ? 'category active' : 'category'} onClick={() => changeCategory(value)} aria-pressed={category === value}><span>{label}</span><span>{value ? signs.filter(s => s.category === value).length : signs.length}</span></button>)}</div>
+      <div className="sidebar-bottom"><p>Progress is saved separately for each country.</p><a href={SOURCE} target="_blank" rel="noreferrer">Official {config.adjective} regulations ↗</a></div>
+    </aside>
+    <main>
+      <header className="page-header"><div><div className="breadcrumb">{config.country} <span>/</span> {view === 'practice' ? 'Practice' : 'Library'}</div><h1>{config.id === 'germany' ? 'Different roads. Know what changes.' : view === 'practice' ? 'A little practice. A safer journey.' : 'Get to know every sign.'}</h1><p>{view === 'practice' ? config.introduction : config.libraryIntroduction}</p></div><span className="language-label">English</span></header>
+      <section className="progress-section" aria-label="Learning progress"><div><strong>{known} <span>/ {signs.length} {config.itemLabel} learned</span></strong><span className="progress-percent">{percent}%</span></div><progress value={known} max={signs.length} aria-label="Cards marked known"/><div className="progress-caption"><span>{review} to practice again</span><button onClick={() => setResetAsked(value => !value)}>Reset progress</button></div>{resetAsked ? <div className="reset-confirm">Clear saved ratings for {config.country} only? <button onClick={() => { updateProgress({}); resetCard(); setResetAsked(false); }}>Clear progress</button><button onClick={() => setResetAsked(false)}>Keep progress</button></div> : null}</section>
+      {storageWarning ? <p className="notice" role="status">Browser storage is unavailable. Your progress will last only for this visit.</p> : null}
+      <div className="toolbar"><div className="scope-tabs" aria-label="Practice selection">{[['all', categories[0]], ['unlearned', 'Still learning'], ['review', 'Practice again']].map(([value, label]) => <button key={value} aria-pressed={scope === value} className={scope === value ? 'active' : ''} onClick={() => { setScope(value); resetCard(); }}>{label}</button>)}</div><label className="search"><Icon name="search"/><input type="search" placeholder="Search name or number" aria-label="Search signs by name or number" value={query} onChange={e => { setQuery(e.target.value); resetCard(); }}/></label></div>
+      <div className="deck-heading"><div><span className="category-dot"/>{categories[category]} <span className="count">{deck.length} cards</span></div>{view === 'practice' ? <button className="shuffle" onClick={shuffleDeck} disabled={deck.length < 2}><Icon name="shuffle"/>Shuffle</button> : null}</div>
+      {deck.length === 0 ? <section className="empty"><Icon name="check" width="36" height="36"/><h2>{scope === 'unlearned' && !query ? 'All caught up in this category.' : scope === 'review' && !query ? `No ${config.itemLabel} to practice again yet.` : `No matching ${config.itemLabel}.`}</h2><p>{scope === 'review' ? 'Mark a card “Practice again” to collect it here.' : 'Try another category or return to the full collection.'}</p><button className="primary" onClick={() => { setScope('all'); setCategory(0); setQuery(''); resetCard(); }}>Show all {config.itemLabel}</button></section> : view === 'practice' ? <>
+        <section className={`flashcard ${revealed ? 'is-revealed' : ''}`} aria-label={`Flashcard ${currentIndex + 1} of ${deck.length}`}>
+          <div className="card-meta"><span>{categories[card.category]}</span><span>{card.kind === 'rule' ? 'Driving scenario' : card.signNumber ? `Sign ${card.signNumber}` : config.id === 'latvia' ? `Sign ${card.id}` : 'Supplementary plate'}</span></div>
+          <button className={card.kind === 'rule' ? 'card-image rule-image' : 'card-image'} onClick={() => setRevealed(value => !value)} aria-label={revealed ? 'Hide the meaning' : 'Reveal the meaning'} aria-expanded={revealed}>
+            {card.kind === 'rule' ? <span className="rule-prompt"><Icon name="cards" width="28" height="28"/><strong>{card.prompt}</strong></span> : imageError ? <span>Image unavailable. Reload the page to try again.</span> : <img src={card.image} alt={revealed ? card.name : `${config.adjective} road sign ${card.signNumber || card.id}`} onError={() => setImageError(true)} draggable="false"/>}
+          </button>
+          {revealed ? <div className="answer" key={card.id}><h2>{card.name}</h2><p>{card.description}</p>{card.difference ? <div className="country-difference"><strong>What changes in Germany</strong><p>{card.difference}</p></div> : null}<details><summary>{card.kind === 'rule' ? 'Official sources' : `${config.nativeLabel} name & source`}</summary>{card.kind !== 'rule' ? <p lang={config.nativeLanguage}>{card.nativeName}</p> : null}<a href={card.source || SOURCE} target="_blank" rel="noreferrer">{card.sourceLabel || 'Read the official regulations'} ↗</a>{card.extraSource ? <a href={card.extraSource} target="_blank" rel="noreferrer">Additional official rule ↗</a> : null}{card.difference ? <a href={decks.latvia.source} target="_blank" rel="noreferrer">Latvian comparison source ↗</a> : null}</details></div> : <div className="question"><h2>{card.kind === 'rule' ? 'What would you do?' : 'What does this sign mean?'}</h2><p>Take a moment to recall before revealing.</p></div>}
+          <div className="card-bottom"><span>{progress[card.id] === 'known' ? '✓ Marked known' : progress[card.id] === 'review' ? '↻ Practice again' : 'Not rated yet'}</span><button className="reveal-link" onClick={() => setRevealed(value => !value)}>{revealed ? 'Hide answer' : 'Reveal answer'}<span>↗</span></button></div>
+        </section>
+        <div className="practice-actions">{revealed ? <><button className="secondary" onClick={() => rate('review')}><Icon name="repeat"/>Practice again<kbd>1</kbd></button><button className="primary" onClick={() => rate('known')}><Icon name="check"/>I know this<kbd>2</kbd></button></> : <button className="primary reveal-button" onClick={() => setRevealed(true)}>Reveal meaning <kbd>Space</kbd></button>}</div>
+        <div className="pagination"><button aria-label="Previous sign" onClick={() => move(-1)} disabled={deck.length < 2}><Icon name="arrow" className="previous"/></button><span>Card <strong>{currentIndex + 1}</strong> of {deck.length}</span><button aria-label="Next sign" onClick={() => move(1)} disabled={deck.length < 2}><Icon name="arrow"/></button></div>
+        <p className="keyboard-hint"><kbd>←</kbd><kbd>→</kbd> browse <span>·</span> <kbd>Space</kbd> reveal <span>·</span> Rate honestly. Repetition makes it stick.</p>
+      </> : <div className="sign-library">{deck.map((sign, i) => <button key={sign.id} className="library-sign" onClick={() => { setIndex(i); setRevealed(false); setImageError(false); setView('practice'); }}><div className={sign.kind === 'rule' ? 'library-image library-rule' : 'library-image'}>{sign.kind === 'rule' ? <><Icon name="cards"/><span>Driving scenario</span></> : <img src={sign.image} alt={sign.name} loading="lazy"/>}</div><span className="library-number">{sign.signNumber || (sign.kind === 'rule' ? 'Rule' : config.id === 'germany' ? 'Plate' : sign.id)}<span>{progress[sign.id] === 'known' ? '✓ Known' : progress[sign.id] === 'review' ? '↻ Review' : ''}</span></span><strong>{sign.name}</strong></button>)}</div>}
+      <footer>{config.footer}</footer>
+      <div className="sr-only" role="status" aria-live="polite">{announcement}</div>
+    </main>
+  </div>;
+}
+
+createRoot(document.getElementById('root')).render(<React.StrictMode><App/></React.StrictMode>);
+
