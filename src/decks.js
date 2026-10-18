@@ -1,3 +1,5 @@
+import { german } from './german';
+import { germanGermany } from './germany.de';
 import raw from './signs.raw.json';
 import { english } from './english';
 import { germanyCards } from './germany';
@@ -7,7 +9,7 @@ const latviaSigns = raw.map(sign => {
   if (!url) throw new Error(`Missing image for sign ${sign.id}`);
   const extension = new URL(url).pathname.split('.').at(-1)?.toLowerCase();
   if (!extension) throw new Error(`Missing image extension for sign ${sign.id}`);
-  return { ...sign, ...english(sign), nativeName: sign.nameLv, kind: 'sign', image: `/signs/${sign.id}-0.${extension}` };
+  return { ...sign, ...english(sign), de: german(sign), nativeName: sign.nameLv, kind: 'sign', image: `/signs/${sign.id}-0.${extension}` };
 });
 
 export const decks = {
@@ -24,7 +26,7 @@ export const decks = {
   germany: {
     id: 'germany', country: 'Germany', adjective: 'German', nativeLanguage: 'de',
     nativeLabel: 'German', subtitle: 'Germany · differences', libraryLabel: 'Signs & rules',
-    storageKey: 'cels-germany-progress-v1', items: germanyCards, itemLabel: 'cards',
+    storageKey: 'cels-germany-progress-v1', items: germanyCards.map(card => ({ ...card, de: germanGermany(card) })), itemLabel: 'cards',
     categories: ['All cards', 'German signs', 'Supplementary plates', 'Driving rules'],
     source: 'https://www.gesetze-im-internet.de/stvo_2013/',
     introduction: 'Learn the signs and driving rules that change when you drive in Germany.',

@@ -1,5 +1,7 @@
 import { readFile, stat } from 'node:fs/promises';
 import assert from 'node:assert/strict';
+import { german } from '../src/german.js';
+import { germanGermany } from '../src/germany.de.js';
 import { english } from '../src/english.js';
 import { germanyCards } from '../src/germany.js';
 const signs = JSON.parse(await readFile('src/signs.raw.json', 'utf8'));
@@ -7,6 +9,8 @@ assert.equal(signs.length, 320);
 assert.equal(new Set(signs.map(s => s.id)).size, signs.length);
 for (const sign of signs) {
   const content = english(sign);
+  const translated = german(sign);
+  assert.ok(translated.name && translated.description, `Missing German content: ${sign.id}`);
   assert.ok(content.name && content.description, `Missing English content: ${sign.id}`);
   for (const [i, url] of sign.images.entries()) {
     const file = `public/signs/${sign.id}-${i}${new URL(url).pathname.match(/\.[^.]+$/)[0].toLowerCase()}`;
@@ -18,6 +22,9 @@ assert.equal(germanyCards.length, 45);
 assert.equal(new Set(germanyCards.map(c => c.id)).size, germanyCards.length);
 const manifest = JSON.parse(await readFile('sources/germany-images.json', 'utf8'));
 for (const card of germanyCards) {
+  const translated = germanGermany(card);
+  assert.ok(translated.name && translated.description && translated.difference, `Missing German content: ${card.id}`);
+  if (card.kind === 'rule') assert.ok(translated.prompt, `Missing German prompt: ${card.id}`);
   assert.ok(card.name && card.description && card.difference, `Missing Germany content: ${card.id}`);
   assert.equal(new URL(card.source).hostname, 'www.gesetze-im-internet.de');
   if (card.kind === 'rule') assert.ok(card.prompt && !card.image);
@@ -29,3 +36,5 @@ for (const card of germanyCards) {
   }
 }
 console.log('Verified: 45 separate Germany cards, 35 official images, 10 scenarios, English comparisons and official source links.');
+
+console.log('Verified: German names and explanations for all 365 cards, including comparisons and scenario prompts.');
